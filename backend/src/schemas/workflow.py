@@ -15,3 +15,7 @@ class CaseForm(BaseModel):
 
 class ReviewForm(BaseModel):
     note: str = Field(min_length=1, max_length=500)
+
+
+class TransferForm(BaseModel):
+    payload: dict[str, Any]

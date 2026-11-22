@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from src.config.settings import cache, engine
 from src.controllers.workflow import download
 from src.models.tables import audit, cases, evidence, runs
-from src.schemas.workflow import CaseForm, LoginForm, ReviewForm
+from src.schemas.workflow import (CaseForm, LoginForm, ReviewForm,
+                                  TransferForm)
 from src.services import domain, workflow
 from src.services.security import current_user, login, operator, reviewer
+from src.services.transfers import TRANSFER_SPEC, TransferError
 
 router = APIRouter()
 
@@ -27,6 +30,11 @@ def sign_in(form: LoginForm):
 @router.get('/spec')
 def spec(_=Depends(current_user)):
     return domain.SPEC
+
+
+@router.get('/transfer-spec')
+def transfer_spec(_=Depends(current_user)):
+    return TRANSFER_SPEC
 
 
 @router.get('/cases')
@@ -62,6 +70,30 @@ def export_evidence(identity: int, _=Depends(current_user)):
 @router.post('/evidence/{identity}/review')
 def review_evidence(identity: int, form: ReviewForm, actor=Depends(reviewer)):
     return workflow.review(identity, form.note, actor)
+
+
+@router.get('/transfers')
+def list_transfer_jobs(_=Depends(current_user)):
+    return workflow.list_transfers()
+
+
+@router.get('/transfers/{identity}')
+def get_transfer_job(identity: int, _=Depends(current_user)):
+    return workflow.get_transfer(identity)
+
+
+@router.post('/transfers', status_code=202)
+def create_transfer(form: TransferForm, actor=Depends(operator)):
+    try:
+        row, duplicated = workflow.enqueue_transfer(form.payload, actor)
+    except TransferError as exc:
+        # 领域校验错误（件号不存在、批次相同等）退回工作台，不产生交接记录。
+        raise HTTPException(422, str(exc)) from None
+    # 同交接号重试：返回 200 与原记录，明确告知没有重复转件。
+    if duplicated:
+        return JSONResponse(row, status_code=status.HTTP_200_OK,
+                            headers={'X-Idempotent-Replay': 'true'})
+    return JSONResponse(row, status_code=status.HTTP_202_ACCEPTED)
 
 
 @router.get('/audit')

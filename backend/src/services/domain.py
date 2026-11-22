@@ -136,7 +136,8 @@ def validate(payload):
         pass
 
 
-def solve(payload, engine):
+def build_report(payload):
+    """对一份登录批次清册跑完整外部排序，返回上架顺序单证据报告。"""
     batch_no, run_bytes, fan_in, records = _batch_inputs(payload)
     order, phases = sort_on_disk(
         _entries(records, run_bytes),
@@ -182,3 +183,7 @@ def solve(payload, engine):
             {"title": "磁盘读写与归并记录", "rows": evidence},
         ],
     }
+
+
+def solve(payload, engine):
+    return build_report(payload)
